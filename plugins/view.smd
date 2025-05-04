@@ -1,0 +1,48 @@
+const { Module } = require('../lib');
+const { downloadMediaMessage } = require('@whiskeysockets/baileys');
+const fs = require('fs');
+const path = require('path');
+
+Module({
+  pattern: 'vv',
+  fromMe: true,
+  desc: 'Saves view once image or video',
+  type: 'media',
+}, async (message, match) => {
+  try {
+    // Use replied message or current message
+    let msg = message.reply_message || message;
+    if (!msg.isViewOnce && msg.mtype !== 'viewOnceMessage' && msg.mtype !== 'viewOnceMessageV2') {
+      return await message.send('*Please reply to or send a view once message.*');
+    }
+
+    // Download media
+    let buffer = await downloadMediaMessage(msg, 'buffer');
+    let mime = msg.mimetype;
+    if (!mime) throw new Error('No valid media type found');
+
+    // Create temp directory
+    const tempDir = path.join(__dirname, '../temp');
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+
+    // Save to temp file
+    let ext = mime.split('/')[1] || 'jpg';
+    let filename = path.join(tempDir, `viewonce_${Date.now()}.${ext}`);
+    fs.writeFileSync(filename, buffer);
+
+    // Send to sender's private chat
+    let targetJid = message.sender || msg.key.participant || msg.key.remoteJid;
+    await message.sendFromFile(filename, { quoted: message, jid: targetJid });
+
+    // Confirm success
+    await message.send('View Once message saved and sent privately.', { jid: targetJid });
+
+    // Clean up
+    fs.unlinkSync(filename);
+  } catch (e) {
+    console.error('Error in antivv.js:', e);
+    await message.send(`*Error saving View Once:* ${e.message}`);
+  }
+});
